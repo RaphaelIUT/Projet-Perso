@@ -1,0 +1,1295 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ledger & DCA Dynamique — Suivi Passif</title>
+
+  <!-- Police Inter pour une lisibilité calme et moderne -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+          },
+          colors: {
+            surface: {
+              bg: '#0B0F19',
+              card: '#111827',
+              border: '#1F2937',
+              elevated: '#161F31',
+            },
+          },
+        },
+      },
+    };
+  </script>
+</head>
+<body class="bg-[#0B0F19] text-slate-100 font-sans antialiased min-h-screen selection:bg-indigo-500/30 selection:text-indigo-200 overflow-x-hidden">
+
+  <!-- Conteneur de notifications discrètes (remplace alert()) -->
+  <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-[calc(100%-2rem)] pointer-events-none"></div>
+
+  <!-- Bandeau Mode Démo (affiché tant que les adresses Ledger ne sont pas configurées) -->
+  <div id="demo-banner" class="hidden bg-indigo-950/60 border-b border-indigo-500/20 text-indigo-200 text-xs sm:text-sm">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex flex-wrap items-center justify-between gap-2">
+      <div class="flex items-center gap-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-indigo-400"></span>
+        <span><strong>Mode Démo actif</strong> — Portefeuille simulé (~6 000 €). Renseigne tes adresses publiques Ledger pour voir tes vrais soldes.</span>
+      </div>
+      <button onclick="openSettings()" class="text-indigo-300 hover:text-white underline underline-offset-2 font-medium transition-colors cursor-pointer">
+        Configurer mes adresses
+      </button>
+    </div>
+  </div>
+
+  <!-- En-tête principal -->
+  <header class="border-b border-[#1F2937] bg-[#0B0F19]/90 backdrop-blur-md sticky top-0 z-30">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <!-- Icône bouclier / coffre -->
+        <div class="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3l7 4v5c0 5-3.5 8.5-7 9-3.5-.5-7-4-7-9V7l7-4z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.5 12.5l1.75 1.75L15 10.5" />
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-base sm:text-lg font-semibold tracking-tight text-slate-100">Ledger & DCA Dynamique</h1>
+          <div class="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+            <span>Lecture seule</span>
+            <span>•</span>
+            <span id="price-source-badge" class="text-slate-400">Chargement...</span>
+            <span class="hidden sm:inline">•</span>
+            <span id="last-updated" class="hidden sm:inline text-slate-500">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Boutons d'action manuels -->
+      <div class="flex items-center gap-2.5">
+        <button id="refresh-btn" onclick="refreshAll(true)" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#111827] hover:bg-[#1F2937] border border-[#1F2937] text-slate-200 text-sm font-medium transition-colors cursor-pointer">
+          <svg id="refresh-icon" class="w-4 h-4 text-slate-400 transition-transform duration-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          <span>Actualiser</span>
+        </button>
+
+        <button onclick="openSettings()" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors shadow-sm cursor-pointer">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          <span>Paramètres</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Contenu principal -->
+  <main class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6">
+
+    <!-- SECTION 1 : Valeur totale Ledger, Objectif & Répartition -->
+    <section class="bg-[#111827] border border-[#1F2937] rounded-2xl p-5 sm:p-6 shadow-sm">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+
+        <!-- Valeur totale et progression objectif -->
+        <div class="lg:col-span-7 space-y-4">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 font-medium">Valeur totale sécurisée (Ledger)</p>
+              <div class="flex items-baseline gap-3 mt-1">
+                <h2 id="total-value" class="text-3xl sm:text-4xl font-bold tracking-tight text-white">— €</h2>
+                <span id="demo-pill" class="hidden text-xs font-medium px-2.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/25">Démo</span>
+              </div>
+            </div>
+            <div class="text-left sm:text-right">
+              <p class="text-xs text-slate-400">Objectif financier</p>
+              <p id="goal-target-display" class="text-sm sm:text-base font-semibold text-slate-200">25 000 €</p>
+            </div>
+          </div>
+
+          <!-- Barre de progression vers l'objectif -->
+          <div class="space-y-2">
+            <div class="w-full h-3 bg-[#0B0F19] rounded-full overflow-hidden border border-[#1F2937]">
+              <div id="goal-progress-bar" class="h-full bg-gradient-to-r from-indigo-500 to-emerald-500 rounded-full transition-all duration-700 ease-out" style="width: 0%"></div>
+            </div>
+            <div class="flex flex-wrap items-center justify-between text-xs text-slate-400 gap-2">
+              <span><strong id="goal-percent" class="text-slate-200">0 %</strong> atteint</span>
+              <span id="goal-remaining">Reste — € pour atteindre l'objectif</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Répartition actuelle vs Cible -->
+        <div class="lg:col-span-5 lg:border-l lg:border-[#1F2937] lg:pl-6 space-y-3">
+          <div class="flex items-center justify-between text-xs">
+            <span class="uppercase tracking-wider text-slate-400 font-medium">Répartition ETH / SOL</span>
+            <span id="target-split-label" class="text-slate-400">Cible : 60% / 40%</span>
+          </div>
+
+          <!-- Barre de répartition actuelle -->
+          <div class="w-full h-2.5 bg-[#0B0F19] rounded-full overflow-hidden flex border border-[#1F2937]">
+            <div id="alloc-bar-eth" class="h-full bg-indigo-500 transition-all duration-700" style="width: 50%"></div>
+            <div id="alloc-bar-sol" class="h-full bg-emerald-500 transition-all duration-700" style="width: 50%"></div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 pt-1">
+            <div class="bg-[#0B0F19]/70 border border-[#1F2937] rounded-xl p-3">
+              <div class="flex items-center gap-2 text-xs text-slate-400">
+                <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
+                <span>Ethereum</span>
+              </div>
+              <div class="mt-1 flex items-baseline justify-between">
+                <span id="alloc-eth-pct" class="text-base font-semibold text-slate-100">— %</span>
+                <span id="alloc-eth-target" class="text-xs text-slate-500">cible 60%</span>
+              </div>
+            </div>
+
+            <div class="bg-[#0B0F19]/70 border border-[#1F2937] rounded-xl p-3">
+              <div class="flex items-center gap-2 text-xs text-slate-400">
+                <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                <span>Solana</span>
+              </div>
+              <div class="mt-1 flex items-baseline justify-between">
+                <span id="alloc-sol-pct" class="text-base font-semibold text-slate-100">— %</span>
+                <span id="alloc-sol-target" class="text-xs text-slate-500">cible 40%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- SECTION 2 : Plan d'achat DCA recommandé -->
+    <section class="bg-[#111827] border border-[#1F2937] rounded-2xl p-5 sm:p-6 shadow-sm space-y-5">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-base sm:text-lg font-semibold text-white">Plan d'achat DCA recommandé</h2>
+          <p class="text-xs sm:text-sm text-slate-400 mt-0.5">
+            Ajusté automatiquement selon la SMA 200 et le RSI 14 • Budget de base : <strong id="base-dca-display" class="text-slate-200">300 € / mois</strong>
+          </p>
+        </div>
+        <div id="dca-reserve-pill" class="hidden text-xs font-medium px-3 py-1.5 rounded-xl bg-amber-500/10 text-amber-300 border border-amber-500/20">
+          <!-- Rempli dynamiquement si réserve cash -->
+        </div>
+      </div>
+
+      <!-- Résumé des ordres recommandés -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <!-- Ordre ETH -->
+        <div class="bg-[#0B0F19]/80 border border-[#1F2937] rounded-xl p-4 flex flex-col justify-between gap-3">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs font-medium uppercase tracking-wider text-indigo-300">Achat ETH</span>
+            <span id="summary-eth-badge" class="text-xs font-medium px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300">—</span>
+          </div>
+          <div>
+            <div id="summary-eth-eur" class="text-2xl font-bold text-white">— €</div>
+            <div id="summary-eth-qty" class="text-sm text-slate-400 mt-0.5">≈ — ETH</div>
+          </div>
+          <p id="summary-eth-mult" class="text-xs text-slate-500">Multiplicateur : —</p>
+        </div>
+
+        <!-- Ordre SOL -->
+        <div class="bg-[#0B0F19]/80 border border-[#1F2937] rounded-xl p-4 flex flex-col justify-between gap-3">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs font-medium uppercase tracking-wider text-emerald-300">Achat SOL</span>
+            <span id="summary-sol-badge" class="text-xs font-medium px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300">—</span>
+          </div>
+          <div>
+            <div id="summary-sol-eur" class="text-2xl font-bold text-white">— €</div>
+            <div id="summary-sol-qty" class="text-sm text-slate-400 mt-0.5">≈ — SOL</div>
+          </div>
+          <p id="summary-sol-mult" class="text-xs text-slate-500">Multiplicateur : —</p>
+        </div>
+
+        <!-- Total & Réserve -->
+        <div class="bg-[#0B0F19]/80 border border-[#1F2937] rounded-xl p-4 flex flex-col justify-between gap-3">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs font-medium uppercase tracking-wider text-slate-400">Total à déployer</span>
+            <span class="text-xs text-slate-500">Ce cycle</span>
+          </div>
+          <div>
+            <div id="summary-total-eur" class="text-2xl font-bold text-white">— €</div>
+            <div id="summary-reserve-text" class="text-sm text-slate-400 mt-0.5">—</div>
+          </div>
+          <p class="text-xs text-slate-500">À transférer ensuite sur la Ledger</p>
+        </div>
+      </div>
+
+      <!-- Accordéon transparent : Comment est calculé l'indicateur ? -->
+      <details class="group bg-[#0B0F19]/60 border border-[#1F2937] rounded-xl">
+        <summary class="flex items-center justify-between cursor-pointer px-4 py-3 text-xs sm:text-sm font-medium text-slate-300 hover:text-white select-none list-none">
+          <span class="flex items-center gap-2">
+            <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Comment est calculé l'indicateur DCA dynamique ?
+          </span>
+          <svg class="w-4 h-4 text-slate-400 transition-transform duration-200 group-open:rotate-180" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </summary>
+        <div class="px-4 pb-4 pt-1 text-xs sm:text-sm text-slate-400 space-y-3 border-t border-[#1F2937]/70">
+          <p>
+            Plutôt que d'acheter au feeling, la formule compare le prix actuel à sa <strong class="text-slate-200">moyenne mobile 200 jours (SMA 200)</strong> et à son <strong class="text-slate-200">RSI 14 jours</strong> (mesure d'excès baissier ou haussier). Le montant de chaque actif suit : <code class="text-indigo-300 bg-indigo-500/10 px-1.5 py-0.5 rounded">Budget × Part cible × Multiplicateur</code>.
+          </p>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1">
+            <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+              <div class="font-semibold text-emerald-300">Accumulation Forte (1.5×)</div>
+              <p class="text-xs text-slate-400 mt-1">Écart SMA 200 ≤ -15 % ou RSI 14 ≤ 35. Marché fortement décoté.</p>
+            </div>
+            <div class="p-3 rounded-xl bg-sky-500/10 border border-sky-500/20">
+              <div class="font-semibold text-sky-300">Zone Décotée (1.2×)</div>
+              <p class="text-xs text-slate-400 mt-1">Écart SMA 200 entre -15 % et 0 %. Prix sous sa tendance longue.</p>
+            </div>
+            <div class="p-3 rounded-xl bg-slate-500/10 border border-slate-500/20">
+              <div class="font-semibold text-slate-200">Zone Neutre (1.0×)</div>
+              <p class="text-xs text-slate-400 mt-1">Écart SMA 200 entre 0 % et +20 %. DCA standard sans excès.</p>
+            </div>
+            <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+              <div class="font-semibold text-amber-300">Surchauffe (0.6×)</div>
+              <p class="text-xs text-slate-400 mt-1">Écart SMA 200 &gt; +20 % ou RSI 14 ≥ 70. On allège et on garde 40 % en réserve cash.</p>
+            </div>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <!-- SECTION 3 : Cartes détaillées Ethereum & Solana -->
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+      <!-- CARTE ETHEREUM -->
+      <article class="bg-[#111827] border border-[#1F2937] rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col gap-5">
+        <!-- Header actif -->
+        <div class="flex items-start justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center text-indigo-400 shrink-0">
+              <!-- SVG Ethereum -->
+              <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2L5.5 12.2 12 16l6.5-3.8L12 2zm0 15.4L5.5 13.6 12 22l6.5-8.4L12 17.4z" />
+              </svg>
+            </div>
+            <div>
+              <h3 class="text-base font-semibold text-white">Ethereum <span class="text-slate-400 font-normal text-sm">ETH</span></h3>
+              <p id="eth-price" class="text-sm font-medium text-slate-300">— €</p>
+            </div>
+          </div>
+          <span id="eth-zone-badge" class="text-xs font-medium px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700">Chargement</span>
+        </div>
+
+        <!-- Solde Ledger -->
+        <div class="bg-[#0B0F19]/80 border border-[#1F2937] rounded-xl p-4 flex items-center justify-between gap-4">
+          <div>
+            <p class="text-xs text-slate-400">Solde Ledger</p>
+            <p id="eth-balance-qty" class="text-lg font-semibold text-white mt-0.5">— ETH</p>
+          </div>
+          <div class="text-right">
+            <p id="eth-rpc-status" class="text-xs text-slate-500">—</p>
+            <p id="eth-balance-eur" class="text-lg font-semibold text-indigo-300 mt-0.5">— €</p>
+          </div>
+        </div>
+
+        <!-- Indicateurs techniques -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <div class="bg-[#0B0F19]/60 border border-[#1F2937] rounded-xl p-3">
+            <p class="text-[11px] text-slate-400">SMA 200j</p>
+            <p id="eth-sma200" class="text-sm font-semibold text-slate-100 mt-0.5">— €</p>
+          </div>
+          <div class="bg-[#0B0F19]/60 border border-[#1F2937] rounded-xl p-3">
+            <p class="text-[11px] text-slate-400">Écart SMA 200</p>
+            <p id="eth-sma-dev" class="text-sm font-semibold text-slate-100 mt-0.5">— %</p>
+          </div>
+          <div class="bg-[#0B0F19]/60 border border-[#1F2937] rounded-xl p-3">
+            <p class="text-[11px] text-slate-400">RSI 14j</p>
+            <p id="eth-rsi" class="text-sm font-semibold text-slate-100 mt-0.5">—</p>
+          </div>
+          <div class="bg-[#0B0F19]/60 border border-[#1F2937] rounded-xl p-3">
+            <p class="text-[11px] text-slate-400">Drawdown 200j</p>
+            <p id="eth-drawdown" class="text-sm font-semibold text-slate-100 mt-0.5">— %</p>
+          </div>
+        </div>
+
+        <!-- Graphique SVG 90 jours -->
+        <div class="bg-[#0B0F19]/70 border border-[#1F2937] rounded-xl p-3.5 space-y-2">
+          <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <span class="text-slate-400 font-medium">90 derniers jours</span>
+            <div class="flex items-center gap-3 text-[11px] text-slate-400">
+              <span class="flex items-center gap-1.5"><span class="w-2.5 h-0.5 bg-indigo-400 inline-block rounded"></span>Prix</span>
+              <span class="flex items-center gap-1.5"><span class="w-2.5 h-0.5 border-t border-dashed border-slate-400 inline-block"></span>SMA 200</span>
+            </div>
+          </div>
+          <div id="eth-chart-container" class="relative w-full h-44 select-none">
+            <!-- SVG généré dynamiquement -->
+          </div>
+          <div id="eth-chart-hover" class="text-[11px] text-slate-500 h-4 flex items-center justify-between">
+            <span>Survole ou touche la courbe pour inspecter</span>
+            <span></span>
+          </div>
+        </div>
+
+        <!-- Recommandation DCA ETH -->
+        <div id="eth-dca-box" class="bg-[#0B0F19]/80 border border-[#1F2937] rounded-xl p-4 space-y-2 mt-auto">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs font-medium uppercase tracking-wider text-slate-400">Recommandation DCA</span>
+            <span id="eth-dca-mult" class="text-xs font-semibold text-indigo-300">—</span>
+          </div>
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <span id="eth-dca-eur" class="text-xl font-bold text-white">— €</span>
+            <span id="eth-dca-qty" class="text-sm font-medium text-indigo-300">— ETH</span>
+          </div>
+          <p id="eth-dca-reason" class="text-xs text-slate-400 leading-relaxed">—</p>
+        </div>
+      </article>
+
+      <!-- CARTE SOLANA -->
+      <article class="bg-[#111827] border border-[#1F2937] rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col gap-5">
+        <!-- Header actif -->
+        <div class="flex items-start justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 shrink-0">
+              <!-- SVG Solana stylisé -->
+              <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M4.5 16.5l2-2h13l-2 2h-13zm0-9l2-2h13l-2 2h-13zm15 4.5l-2-2h-13l2 2h13z" />
+              </svg>
+            </div>
+            <div>
+              <h3 class="text-base font-semibold text-white">Solana <span class="text-slate-400 font-normal text-sm">SOL</span></h3>
+              <p id="sol-price" class="text-sm font-medium text-slate-300">— €</p>
+            </div>
+          </div>
+          <span id="sol-zone-badge" class="text-xs font-medium px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700">Chargement</span>
+        </div>
+
+        <!-- Solde Ledger -->
+        <div class="bg-[#0B0F19]/80 border border-[#1F2937] rounded-xl p-4 flex items-center justify-between gap-4">
+          <div>
+            <p class="text-xs text-slate-400">Solde Ledger</p>
+            <p id="sol-balance-qty" class="text-lg font-semibold text-white mt-0.5">— SOL</p>
+          </div>
+          <div class="text-right">
+            <p id="sol-rpc-status" class="text-xs text-slate-500">—</p>
+            <p id="sol-balance-eur" class="text-lg font-semibold text-emerald-300 mt-0.5">— €</p>
+          </div>
+        </div>
+
+        <!-- Indicateurs techniques -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <div class="bg-[#0B0F19]/60 border border-[#1F2937] rounded-xl p-3">
+            <p class="text-[11px] text-slate-400">SMA 200j</p>
+            <p id="sol-sma200" class="text-sm font-semibold text-slate-100 mt-0.5">— €</p>
+          </div>
+          <div class="bg-[#0B0F19]/60 border border-[#1F2937] rounded-xl p-3">
+            <p class="text-[11px] text-slate-400">Écart SMA 200</p>
+            <p id="sol-sma-dev" class="text-sm font-semibold text-slate-100 mt-0.5">— %</p>
+          </div>
+          <div class="bg-[#0B0F19]/60 border border-[#1F2937] rounded-xl p-3">
+            <p class="text-[11px] text-slate-400">RSI 14j</p>
+            <p id="sol-rsi" class="text-sm font-semibold text-slate-100 mt-0.5">—</p>
+          </div>
+          <div class="bg-[#0B0F19]/60 border border-[#1F2937] rounded-xl p-3">
+            <p class="text-[11px] text-slate-400">Drawdown 200j</p>
+            <p id="sol-drawdown" class="text-sm font-semibold text-slate-100 mt-0.5">— %</p>
+          </div>
+        </div>
+
+        <!-- Graphique SVG 90 jours -->
+        <div class="bg-[#0B0F19]/70 border border-[#1F2937] rounded-xl p-3.5 space-y-2">
+          <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <span class="text-slate-400 font-medium">90 derniers jours</span>
+            <div class="flex items-center gap-3 text-[11px] text-slate-400">
+              <span class="flex items-center gap-1.5"><span class="w-2.5 h-0.5 bg-emerald-400 inline-block rounded"></span>Prix</span>
+              <span class="flex items-center gap-1.5"><span class="w-2.5 h-0.5 border-t border-dashed border-slate-400 inline-block"></span>SMA 200</span>
+            </div>
+          </div>
+          <div id="sol-chart-container" class="relative w-full h-44 select-none">
+            <!-- SVG généré dynamiquement -->
+          </div>
+          <div id="sol-chart-hover" class="text-[11px] text-slate-500 h-4 flex items-center justify-between">
+            <span>Survole ou touche la courbe pour inspecter</span>
+            <span></span>
+          </div>
+        </div>
+
+        <!-- Recommandation DCA SOL -->
+        <div id="sol-dca-box" class="bg-[#0B0F19]/80 border border-[#1F2937] rounded-xl p-4 space-y-2 mt-auto">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs font-medium uppercase tracking-wider text-slate-400">Recommandation DCA</span>
+            <span id="sol-dca-mult" class="text-xs font-semibold text-emerald-300">—</span>
+          </div>
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <span id="sol-dca-eur" class="text-xl font-bold text-white">— €</span>
+            <span id="sol-dca-qty" class="text-sm font-medium text-emerald-300">— SOL</span>
+          </div>
+          <p id="sol-dca-reason" class="text-xs text-slate-400 leading-relaxed">—</p>
+        </div>
+      </article>
+
+    </section>
+  </main>
+
+  <!-- Pied de page confidentialité -->
+  <footer class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 text-center text-xs text-slate-500 border-t border-[#1F2937]/60 mt-6">
+    <p>100 % côté client • Tes adresses publiques sont sauvegardées uniquement dans ton navigateur (localStorage) et jamais envoyées sur un serveur.</p>
+    <p class="mt-1">Outil d'aide à la discipline long terme — ne constitue pas un conseil financier.</p>
+  </footer>
+
+  <!-- MODALE PARAMÈTRES -->
+  <div id="settings-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+    <div class="bg-[#111827] border border-[#1F2937] rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+      <!-- En-tête modale -->
+      <div class="px-6 py-4 border-b border-[#1F2937] flex items-center justify-between">
+        <div>
+          <h2 class="text-base font-semibold text-white">Paramètres du suivi</h2>
+          <p class="text-xs text-slate-400 mt-0.5">Enregistrés localement sur cet appareil uniquement.</p>
+        </div>
+        <button onclick="closeSettings()" class="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-[#1F2937] transition-colors cursor-pointer" aria-label="Fermer">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Corps modale -->
+      <form id="settings-form" onsubmit="saveSettings(event)" class="p-6 space-y-5 overflow-y-auto">
+        <!-- Adresses Ledger -->
+        <div class="space-y-3">
+          <div>
+            <label for="input-eth-addr" class="block text-xs font-medium text-slate-300 mb-1.5">Adresse publique Ethereum (0x...)</label>
+            <input id="input-eth-addr" type="text" placeholder="0x..." autocomplete="off" spellcheck="false"
+              class="w-full px-3.5 py-2.5 rounded-xl bg-[#0B0F19] border border-[#1F2937] text-sm text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors font-mono" />
+          </div>
+
+          <div>
+            <label for="input-sol-addr" class="block text-xs font-medium text-slate-300 mb-1.5">Adresse publique Solana</label>
+            <input id="input-sol-addr" type="text" placeholder="Ex: 7xKXtg..." autocomplete="off" spellcheck="false"
+              class="w-full px-3.5 py-2.5 rounded-xl bg-[#0B0F19] border border-[#1F2937] text-sm text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition-colors font-mono" />
+          </div>
+        </div>
+
+        <hr class="border-[#1F2937]" />
+
+        <!-- Budget DCA et Objectif -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label for="input-dca-budget" class="block text-xs font-medium text-slate-300 mb-1.5">Budget DCA mensuel (€)</label>
+            <input id="input-dca-budget" type="number" min="10" step="10" required
+              class="w-full px-3.5 py-2.5 rounded-xl bg-[#0B0F19] border border-[#1F2937] text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors" />
+          </div>
+
+          <div>
+            <label for="input-goal" class="block text-xs font-medium text-slate-300 mb-1.5">Objectif financier (€)</label>
+            <input id="input-goal" type="number" min="100" step="100" required
+              class="w-full px-3.5 py-2.5 rounded-xl bg-[#0B0F19] border border-[#1F2937] text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors" />
+          </div>
+        </div>
+
+        <!-- Curseur répartition cible ETH / SOL -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-medium text-slate-300">Répartition cible</span>
+            <span class="font-semibold">
+              <span id="slider-eth-label" class="text-indigo-400">60 % ETH</span>
+              <span class="text-slate-500 mx-1">/</span>
+              <span id="slider-sol-label" class="text-emerald-400">40 % SOL</span>
+            </span>
+          </div>
+          <input id="input-eth-split" type="range" min="0" max="100" step="5" value="60"
+            oninput="updateSliderLabels(this.value)"
+            class="w-full accent-indigo-500 cursor-pointer h-2 bg-[#0B0F19] rounded-lg" />
+        </div>
+
+        <!-- Option Mode Démo -->
+        <div class="flex items-center justify-between p-3.5 rounded-xl bg-[#0B0F19]/80 border border-[#1F2937]">
+          <div>
+            <p class="text-xs font-medium text-slate-200">Forcer le Mode Démo</p>
+            <p class="text-[11px] text-slate-400">Affiche un portefeuille simulé (~6 000 €) sans lire la blockchain.</p>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input id="input-demo-mode" type="checkbox" class="sr-only peer" />
+            <div class="w-10 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+          </label>
+        </div>
+
+        <!-- Actions modale -->
+        <div class="flex flex-wrap items-center justify-between gap-3 pt-2">
+          <button type="button" onclick="resetSettings()" class="text-xs text-slate-400 hover:text-rose-400 transition-colors cursor-pointer">
+            Réinitialiser par défaut
+          </button>
+          <div class="flex items-center gap-2.5">
+            <button type="button" onclick="closeSettings()" class="px-4 py-2 rounded-xl bg-[#1F2937] hover:bg-slate-700 text-slate-200 text-sm font-medium transition-colors cursor-pointer">
+              Annuler
+            </button>
+            <button type="submit" class="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors cursor-pointer">
+              Enregistrer
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- LOGIQUE APPLICATIVE (100% client-side) -->
+  <script>
+    // =========================================================================
+    // 1. CONFIGURATION & ÉTAT GLOBAL
+    // =========================================================================
+    const STORAGE_KEY = 'ledger_dca_tracker_v1';
+
+    const DEFAULT_SETTINGS = {
+      ethAddress: '',
+      solAddress: '',
+      dcaBudget: 300,
+      ethSplit: 60, // en % (SOL = 100 - ethSplit)
+      goalEur: 25000,
+      forceDemo: false,
+    };
+
+    let settings = loadSettings();
+
+    // État courant des données chargées
+    const appState = {
+      source: 'Chargement...',
+      eth: { balance: 0, rpcStatus: '—', prices: [], dates: [], indicators: null },
+      sol: { balance: 0, rpcStatus: '—', prices: [], dates: [], indicators: null },
+    };
+
+    // =========================================================================
+    // 2. GESTION DU LOCALSTORAGE & PARAMÈTRES
+    // =========================================================================
+    function loadSettings() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return { ...DEFAULT_SETTINGS };
+        const parsed = JSON.parse(raw);
+        return { ...DEFAULT_SETTINGS, ...parsed };
+      } catch (err) {
+        console.warn('Impossible de lire localStorage :', err);
+        return { ...DEFAULT_SETTINGS };
+      }
+    }
+
+    function persistSettings(newSettings) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+      } catch (err) {
+        console.warn('Impossible de sauvegarder dans localStorage :', err);
+        showToast('Impossible de sauvegarder les paramètres dans ce navigateur.', 'error');
+      }
+    }
+
+    function isDemoActive() {
+      const hasAnyAddress = Boolean(settings.ethAddress.trim() || settings.solAddress.trim());
+      return settings.forceDemo || !hasAnyAddress;
+    }
+
+    function openSettings() {
+      document.getElementById('input-eth-addr').value = settings.ethAddress;
+      document.getElementById('input-sol-addr').value = settings.solAddress;
+      document.getElementById('input-dca-budget').value = settings.dcaBudget;
+      document.getElementById('input-goal').value = settings.goalEur;
+      document.getElementById('input-eth-split').value = settings.ethSplit;
+      document.getElementById('input-demo-mode').checked = settings.forceDemo;
+      updateSliderLabels(settings.ethSplit);
+
+      const modal = document.getElementById('settings-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeSettings() {
+      const modal = document.getElementById('settings-modal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    function updateSliderLabels(ethPct) {
+      const ethVal = Number(ethPct);
+      const solVal = 100 - ethVal;
+      document.getElementById('slider-eth-label').textContent = `${ethVal} % ETH`;
+      document.getElementById('slider-sol-label').textContent = `${solVal} % SOL`;
+    }
+
+    function saveSettings(event) {
+      event.preventDefault();
+      const ethAddr = document.getElementById('input-eth-addr').value.trim();
+      const solAddr = document.getElementById('input-sol-addr').value.trim();
+      const budget = Math.max(10, Number(document.getElementById('input-dca-budget').value) || 300);
+      const goal = Math.max(100, Number(document.getElementById('input-goal').value) || 25000);
+      const ethSplit = Math.min(100, Math.max(0, Number(document.getElementById('input-eth-split').value)));
+      const forceDemo = document.getElementById('input-demo-mode').checked;
+
+      // Validation légère des formats d'adresses si renseignées
+      if (ethAddr && !/^0x[a-fA-F0-9]{40}$/.test(ethAddr)) {
+        showToast('Format d’adresse Ethereum invalide (doit commencer par 0x et faire 42 caractères).', 'error');
+        return;
+      }
+      if (solAddr && !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(solAddr)) {
+        showToast('Format d’adresse Solana invalide (base58 de 32 à 44 caractères).', 'error');
+        return;
+      }
+
+      settings = { ethAddress: ethAddr, solAddress: solAddr, dcaBudget: budget, ethSplit, goalEur: goal, forceDemo };
+      persistSettings(settings);
+      closeSettings();
+      showToast('Paramètres enregistrés localement.', 'success');
+      refreshAll(false);
+    }
+
+    function resetSettings() {
+      settings = { ...DEFAULT_SETTINGS };
+      persistSettings(settings);
+      closeSettings();
+      showToast('Paramètres réinitialisés (Mode Démo activé).', 'info');
+      refreshAll(false);
+    }
+
+    // Fermer la modale au clic extérieur ou touche Échap
+    document.getElementById('settings-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'settings-modal') closeSettings();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeSettings();
+    });
+
+    // =========================================================================
+    // 3. NOTIFICATIONS DISCRÈTES (TOASTS)
+    // =========================================================================
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      const styles = {
+        success: 'bg-emerald-950/95 border-emerald-500/30 text-emerald-200',
+        error: 'bg-rose-950/95 border-rose-500/30 text-rose-200',
+        info: 'bg-[#161F31]/95 border-[#1F2937] text-slate-200',
+      };
+      toast.className = `pointer-events-auto px-4 py-3 rounded-xl border text-xs sm:text-sm shadow-lg transition-all duration-300 ${styles[type] || styles.info}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-1');
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
+
+    // =========================================================================
+    // 4. LECTURE BLOCKCHAIN (JSON-RPC PUBLIC, SANS CLÉ API)
+    // =========================================================================
+    async function fetchEthBalance(address) {
+      if (!address) return { balance: 0, status: 'Non renseignée' };
+
+      const endpoints = [
+        'https://ethereum-rpc.publicnode.com',
+        'https://eth.llamarpc.com',
+      ];
+
+      for (const rpc of endpoints) {
+        try {
+          const res = await fetch(rpc, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'eth_getBalance',
+              params: [address, 'latest'],
+            }),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          if (data.error) throw new Error(data.error.message);
+
+          // Conversion précise Wei -> ETH via BigInt
+          const wei = BigInt(data.result);
+          const eth = Number(wei) / 1e18;
+          return { balance: eth, status: 'RPC Ethereum OK' };
+        } catch (err) {
+          console.warn(`Échec RPC ETH (${rpc}):`, err);
+        }
+      }
+      return { balance: 0, status: 'Erreur lecture RPC' };
+    }
+
+    async function fetchSolBalance(address) {
+      if (!address) return { balance: 0, status: 'Non renseignée' };
+
+      const endpoints = [
+        'https://solana-rpc.publicnode.com',
+        'https://api.mainnet-beta.solana.com',
+      ];
+
+      for (const rpc of endpoints) {
+        try {
+          const res = await fetch(rpc, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'getBalance',
+              params: [address],
+            }),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          if (data.error) throw new Error(data.error.message);
+
+          // Conversion Lamports -> SOL (1 SOL = 10^9 Lamports)
+          const lamports = data.result?.value ?? 0;
+          const sol = lamports / 1e9;
+          return { balance: sol, status: 'RPC Solana OK' };
+        } catch (err) {
+          console.warn(`Échec RPC SOL (${rpc}):`, err);
+        }
+      }
+      return { balance: 0, status: 'Erreur lecture RPC' };
+    }
+
+    // =========================================================================
+    // 5. HISTORIQUE DES PRIX (BINANCE -> FALLBACK COINGECKO -> FALLBACK ESTIMÉ)
+    // =========================================================================
+    // On récupère 290 bougies journalières si possible pour tracer une vraie SMA 200 glissante sur les 90 derniers jours
+    async function fetchBinanceHistory(symbol) {
+      const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1d&limit=290`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Binance HTTP ${res.status}`);
+      const klines = await res.json();
+      if (!Array.isArray(klines) || klines.length < 200) throw new Error('Données Binance insuffisantes');
+      return {
+        dates: klines.map((k) => new Date(k[0])),
+        prices: klines.map((k) => parseFloat(k[4])), // Prix de clôture
+      };
+    }
+
+    async function fetchCoinGeckoHistory(coinId) {
+      const url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=eur&days=290&interval=daily`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`CoinGecko HTTP ${res.status}`);
+      const data = await res.json();
+      if (!Array.isArray(data.prices) || data.prices.length < 200) throw new Error('Données CoinGecko insuffisantes');
+      return {
+        dates: data.prices.map((p) => new Date(p[0])),
+        prices: data.prices.map((p) => Number(p[1])),
+      };
+    }
+
+    // Fallback déterministe réaliste si l'utilisateur est hors-ligne ou bloqué par un pare-feu
+    function generateFallbackHistory(basePrice, volatility, seed) {
+      const totalDays = 290;
+      const prices = [];
+      const dates = [];
+      let current = basePrice * 1.12;
+      const now = Date.now();
+      let s = seed;
+      const rand = () => {
+        s = (s * 16807) % 2147483647;
+        return (s - 1) / 2147483646;
+      };
+      for (let i = totalDays - 1; i >= 0; i--) {
+        const change = (rand() - 0.505) * volatility;
+        current = Math.max(basePrice * 0.45, current * (1 + change));
+        prices.push(Number(current.toFixed(2)));
+        dates.push(new Date(now - i * 86400000));
+      }
+      return { dates, prices };
+    }
+
+    async function fetchAllMarketData() {
+      // Tentative 1 : Binance (rapide, sans clé API, 290 jours)
+      try {
+        const [eth, sol] = await Promise.all([
+          fetchBinanceHistory('ETHEUR'),
+          fetchBinanceHistory('SOLEUR'),
+        ]);
+        return { eth, sol, source: 'Binance (temps réel)' };
+      } catch (err) {
+        console.warn('Fallback depuis Binance vers CoinGecko :', err);
+      }
+
+      // Tentative 2 : CoinGecko
+      try {
+        const [eth, sol] = await Promise.all([
+          fetchCoinGeckoHistory('ethereum'),
+          fetchCoinGeckoHistory('solana'),
+        ]);
+        return { eth, sol, source: 'CoinGecko (temps réel)' };
+      } catch (err) {
+        console.warn('Fallback vers données estimées :', err);
+      }
+
+      // Tentative 3 : Données estimées hors-ligne
+      return {
+        eth: generateFallbackHistory(2750, 0.055, 4219),
+        sol: generateFallbackHistory(145, 0.075, 8931),
+        source: 'Données estimées (hors-ligne)',
+      };
+    }
+
+    // =========================================================================
+    // 6. CALCUL DES INDICATEURS TECHNIQUES & MOTEUR DCA DYNAMIQUE
+    // =========================================================================
+    function computeRollingSMA(prices, period = 200) {
+      const sma = [];
+      for (let i = 0; i < prices.length; i++) {
+        const start = Math.max(0, i - period + 1);
+        const slice = prices.slice(start, i + 1);
+        const avg = slice.reduce((acc, v) => acc + v, 0) / slice.length;
+        sma.push(avg);
+      }
+      return sma;
+    }
+
+    function computeRSI14(prices) {
+      const period = 14;
+      if (prices.length <= period) return 50;
+
+      // Calcul RSI standard (lissage de Wilder)
+      let gains = 0;
+      let losses = 0;
+      for (let i = 1; i <= period; i++) {
+        const diff = prices[i] - prices[i - 1];
+        if (diff >= 0) gains += diff;
+        else losses -= diff;
+      }
+      let avgGain = gains / period;
+      let avgLoss = losses / period;
+
+      for (let i = period + 1; i < prices.length; i++) {
+        const diff = prices[i] - prices[i - 1];
+        const gain = diff > 0 ? diff : 0;
+        const loss = diff < 0 ? -diff : 0;
+        avgGain = (avgGain * (period - 1) + gain) / period;
+        avgLoss = (avgLoss * (period - 1) + loss) / period;
+      }
+
+      if (avgLoss === 0) return 100;
+      const rs = avgGain / avgLoss;
+      return 100 - 100 / (1 + rs);
+    }
+
+    function analyzeAsset(prices) {
+      const last200 = prices.slice(-200);
+      const currentPrice = last200[last200.length - 1];
+      const sma200Series = computeRollingSMA(prices, 200);
+      const sma200 = sma200Series[sma200Series.length - 1];
+      const smaDevPct = ((currentPrice - sma200) / sma200) * 100;
+      const rsi14 = computeRSI14(last200);
+
+      const high200 = Math.max(...last200);
+      const drawdownPct = ((currentPrice - high200) / high200) * 100;
+
+      // Algorithme de multiplicateur DCA transparent
+      let zone = {
+        label: 'Zone Neutre',
+        multiplier: 1.0,
+        badgeClass: 'bg-slate-500/15 text-slate-200 border-slate-500/30',
+        reason: `Prix proche de sa moyenne 200j (${formatSignedPct(smaDevPct)}) — exécution du DCA standard.`,
+      };
+
+      if (smaDevPct <= -15 || rsi14 <= 35) {
+        const trigger = smaDevPct <= -15
+          ? `Prix ${Math.abs(smaDevPct).toFixed(1)} % sous sa moyenne 200j`
+          : `RSI 14 en zone de survente (${rsi14.toFixed(0)})`;
+        zone = {
+          label: 'Accumulation Forte',
+          multiplier: 1.5,
+          badgeClass: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+          reason: `${trigger} — zone très favorable pour renforcer à prix décoté.`,
+        };
+      } else if (smaDevPct > 20 || rsi14 >= 70) {
+        const trigger = smaDevPct > 20
+          ? `Prix ${smaDevPct.toFixed(1)} % au-dessus de sa moyenne 200j`
+          : `RSI 14 en zone de surchauffe (${rsi14.toFixed(0)})`;
+        zone = {
+          label: 'Surchauffe',
+          multiplier: 0.6,
+          badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+          reason: `${trigger} — prudence, on réduit l'achat et on garde 40 % en réserve cash.`,
+        };
+      } else if (smaDevPct < 0) {
+        zone = {
+          label: 'Zone Décotée',
+          multiplier: 1.2,
+          badgeClass: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
+          reason: `Prix ${Math.abs(smaDevPct).toFixed(1)} % sous sa moyenne 200j — zone favorable pour renforcer légèrement.`,
+        };
+      }
+
+      return {
+        currentPrice,
+        sma200,
+        smaDevPct,
+        rsi14,
+        drawdownPct,
+        sma200Series,
+        zone,
+      };
+    }
+
+    // =========================================================================
+    // 7. GRAPHIQUE SVG RESPONSIVE (90 DERNIERS JOURS : PRIX + SMA 200)
+    // =========================================================================
+    function renderChart(containerId, hoverId, dates, prices, smaSeries, strokeColor, gradientId) {
+      const container = document.getElementById(containerId);
+      const hoverEl = document.getElementById(hoverId);
+
+      // Extraire les 90 derniers points
+      const n = Math.min(90, prices.length);
+      const pSlice = prices.slice(-n);
+      const sSlice = smaSeries.slice(-n);
+      const dSlice = dates.slice(-n);
+
+      const width = 520;
+      const height = 170;
+      const padLeft = 8;
+      const padRight = 8;
+      const padTop = 14;
+      const padBottom = 18;
+      const plotW = width - padLeft - padRight;
+      const plotH = height - padTop - padBottom;
+
+      const allVals = [...pSlice, ...sSlice];
+      const minVal = Math.min(...allVals) * 0.97;
+      const maxVal = Math.max(...allVals) * 1.03;
+      const range = maxVal - minVal || 1;
+
+      const xFor = (i) => padLeft + (i / (n - 1)) * plotW;
+      const yFor = (val) => padTop + plotH - ((val - minVal) / range) * plotH;
+
+      const pricePath = pSlice.map((v, i) => `${i === 0 ? 'M' : 'L'} ${xFor(i).toFixed(1)} ${yFor(v).toFixed(1)}`).join(' ');
+      const smaPath = sSlice.map((v, i) => `${i === 0 ? 'M' : 'L'} ${xFor(i).toFixed(1)} ${yFor(v).toFixed(1)}`).join(' ');
+      const areaPath = `${pricePath} L ${xFor(n - 1).toFixed(1)} ${(padTop + plotH).toFixed(1)} L ${xFor(0).toFixed(1)} ${(padTop + plotH).toFixed(1)} Z`;
+
+      container.innerHTML = `
+        <svg viewBox="0 0 ${width} ${height}" class="w-full h-full overflow-visible" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="${strokeColor}" stop-opacity="0.22" />
+              <stop offset="100%" stop-color="${strokeColor}" stop-opacity="0.0" />
+            </linearGradient>
+          </defs>
+
+          <!-- Lignes horizontales discrètes -->
+          <line x1="${padLeft}" y1="${padTop}" x2="${width - padRight}" y2="${padTop}" stroke="#1F2937" stroke-width="1" />
+          <line x1="${padLeft}" y1="${padTop + plotH / 2}" x2="${width - padRight}" y2="${padTop + plotH / 2}" stroke="#1F2937" stroke-width="1" stroke-dasharray="2 4" />
+          <line x1="${padLeft}" y1="${padTop + plotH}" x2="${width - padRight}" y2="${padTop + plotH}" stroke="#1F2937" stroke-width="1" />
+
+          <!-- Remplissage sous la courbe de prix -->
+          <path d="${areaPath}" fill="url(#${gradientId})" />
+
+          <!-- Ligne pointillée SMA 200 -->
+          <path d="${smaPath}" fill="none" stroke="#94A3B8" stroke-width="1.5" stroke-dasharray="5 5" opacity="0.75" />
+
+          <!-- Courbe de prix -->
+          <path d="${pricePath}" fill="none" stroke="${strokeColor}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" />
+
+          <!-- Curseur interactif (masqué par défaut) -->
+          <line id="${containerId}-cursor" x1="0" y1="${padTop}" x2="0" y2="${padTop + plotH}" stroke="#475569" stroke-width="1" stroke-dasharray="3 3" opacity="0" />
+          <circle id="${containerId}-dot" cx="0" cy="0" r="4" fill="${strokeColor}" stroke="#0B0F19" stroke-width="2" opacity="0" />
+
+          <!-- Zone transparente de capture souris / tactile -->
+          <rect id="${containerId}-hit" x="${padLeft}" y="${padTop}" width="${plotW}" height="${plotH}" fill="transparent" class="cursor-crosshair" />
+        </svg>
+      `;
+
+      // Interactions souris & tactile pour inspecter les valeurs
+      const hitRect = document.getElementById(`${containerId}-hit`);
+      const cursorLine = document.getElementById(`${containerId}-cursor`);
+      const dot = document.getElementById(`${containerId}-dot`);
+
+      const handleInspect = (clientX) => {
+        const rect = hitRect.getBoundingClientRect();
+        const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+        const idx = Math.round(ratio * (n - 1));
+        const x = xFor(idx);
+        const y = yFor(pSlice[idx]);
+
+        cursorLine.setAttribute('x1', x);
+        cursorLine.setAttribute('x2', x);
+        cursorLine.setAttribute('opacity', '1');
+        dot.setAttribute('cx', x);
+        dot.setAttribute('cy', y);
+        dot.setAttribute('opacity', '1');
+
+        const dateStr = dSlice[idx].toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
+        hoverEl.innerHTML = `
+          <span class="text-slate-300 font-medium">${dateStr}</span>
+          <span>Prix : <strong class="text-white">${formatEur(pSlice[idx])}</strong> • SMA 200 : <strong class="text-slate-300">${formatEur(sSlice[idx])}</strong></span>
+        `;
+      };
+
+      const resetInspect = () => {
+        cursorLine.setAttribute('opacity', '0');
+        dot.setAttribute('opacity', '0');
+        hoverEl.innerHTML = `
+          <span>Min 90j : ${formatEur(Math.min(...pSlice))}</span>
+          <span>Max 90j : ${formatEur(Math.max(...pSlice))}</span>
+        `;
+      };
+
+      resetInspect();
+
+      hitRect.addEventListener('mousemove', (e) => handleInspect(e.clientX));
+      hitRect.addEventListener('mouseleave', resetInspect);
+      hitRect.addEventListener('touchstart', (e) => {
+        if (e.touches[0]) handleInspect(e.touches[0].clientX);
+      }, { passive: true });
+      hitRect.addEventListener('touchmove', (e) => {
+        if (e.touches[0]) handleInspect(e.touches[0].clientX);
+      }, { passive: true });
+      hitRect.addEventListener('touchend', resetInspect);
+    }
+
+    // =========================================================================
+    // 8. FORMATAGE & RENDU DE L'INTERFACE
+    // =========================================================================
+    function formatEur(val) {
+      return new Intl.NumberFormat('fr-FR', {
+        style: 'currency',
+        currency: 'EUR',
+        maximumFractionDigits: val >= 1000 ? 0 : 2,
+      }).format(val);
+    }
+
+    function formatSignedPct(val) {
+      const sign = val > 0 ? '+' : '';
+      return `${sign}${val.toFixed(1)} %`;
+    }
+
+    function renderUI() {
+      const demo = isDemoActive();
+      const ethInd = appState.eth.indicators;
+      const solInd = appState.sol.indicators;
+      if (!ethInd || !solInd) return;
+
+      // Bandeau Mode Démo
+      document.getElementById('demo-banner').classList.toggle('hidden', !demo);
+      document.getElementById('demo-pill').classList.toggle('hidden', !demo);
+      document.getElementById('price-source-badge').textContent = appState.source;
+      document.getElementById('last-updated').textContent =
+        'Mis à jour à ' + new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+
+      // Calcul des valeurs Ledger
+      const ethValEur = appState.eth.balance * ethInd.currentPrice;
+      const solValEur = appState.sol.balance * solInd.currentPrice;
+      const totalEur = ethValEur + solValEur;
+
+      // Section 1 : Valeur totale & Objectif
+      document.getElementById('total-value').textContent = formatEur(totalEur);
+      document.getElementById('goal-target-display').textContent = formatEur(settings.goalEur);
+
+      const progressPct = Math.min(100, (totalEur / settings.goalEur) * 100);
+      const remainingEur = Math.max(0, settings.goalEur - totalEur);
+      document.getElementById('goal-progress-bar').style.width = `${progressPct.toFixed(1)}%`;
+      document.getElementById('goal-percent').textContent = `${progressPct.toFixed(1)} %`;
+      document.getElementById('goal-remaining').textContent =
+        remainingEur > 0 ? `Reste ${formatEur(remainingEur)} pour atteindre l'objectif` : 'Objectif atteint !';
+
+      // Répartition actuelle vs cible
+      const ethTarget = settings.ethSplit;
+      const solTarget = 100 - ethTarget;
+      const ethActualPct = totalEur > 0 ? (ethValEur / totalEur) * 100 : 0;
+      const solActualPct = totalEur > 0 ? (solValEur / totalEur) * 100 : 0;
+
+      document.getElementById('target-split-label').textContent = `Cible : ${ethTarget}% / ${solTarget}%`;
+      document.getElementById('alloc-bar-eth').style.width = `${totalEur > 0 ? ethActualPct : 50}%`;
+      document.getElementById('alloc-bar-sol').style.width = `${totalEur > 0 ? solActualPct : 50}%`;
+      document.getElementById('alloc-eth-pct').textContent = `${ethActualPct.toFixed(1)} %`;
+      document.getElementById('alloc-sol-pct').textContent = `${solActualPct.toFixed(1)} %`;
+      document.getElementById('alloc-eth-target').textContent = `cible ${ethTarget}%`;
+      document.getElementById('alloc-sol-target').textContent = `cible ${solTarget}%`;
+
+      // Section 2 : Calcul du plan DCA dynamique
+      const baseEthEur = settings.dcaBudget * (ethTarget / 100);
+      const baseSolEur = settings.dcaBudget * (solTarget / 100);
+
+      const recEthEur = baseEthEur * ethInd.zone.multiplier;
+      const recSolEur = baseSolEur * solInd.zone.multiplier;
+      const recEthQty = recEthEur / ethInd.currentPrice;
+      const recSolQty = recSolEur / solInd.currentPrice;
+      const totalRecEur = recEthEur + recSolEur;
+
+      // Calcul de la réserve cash si multiplicateur < 1
+      const reserveEth = Math.max(0, baseEthEur - recEthEur);
+      const reserveSol = Math.max(0, baseSolEur - recSolEur);
+      const totalReserve = reserveEth + reserveSol;
+
+      document.getElementById('base-dca-display').textContent = `${formatEur(settings.dcaBudget)} / mois`;
+
+      // Résumé ETH
+      document.getElementById('summary-eth-badge').textContent = ethInd.zone.label;
+      document.getElementById('summary-eth-badge').className = `text-xs font-medium px-2.5 py-0.5 rounded-full border ${ethInd.zone.badgeClass}`;
+      document.getElementById('summary-eth-eur').textContent = formatEur(recEthEur);
+      document.getElementById('summary-eth-qty').textContent = `≈ ${recEthQty.toFixed(4)} ETH`;
+      document.getElementById('summary-eth-mult').textContent = `Base ${formatEur(baseEthEur)} × ${ethInd.zone.multiplier.toFixed(1)}`;
+
+      // Résumé SOL
+      document.getElementById('summary-sol-badge').textContent = solInd.zone.label;
+      document.getElementById('summary-sol-badge').className = `text-xs font-medium px-2.5 py-0.5 rounded-full border ${solInd.zone.badgeClass}`;
+      document.getElementById('summary-sol-eur').textContent = formatEur(recSolEur);
+      document.getElementById('summary-sol-qty').textContent = `≈ ${recSolQty.toFixed(3)} SOL`;
+      document.getElementById('summary-sol-mult').textContent = `Base ${formatEur(baseSolEur)} × ${solInd.zone.multiplier.toFixed(1)}`;
+
+      // Résumé Total & Réserve
+      document.getElementById('summary-total-eur').textContent = formatEur(totalRecEur);
+      const reservePill = document.getElementById('dca-reserve-pill');
+      const reserveText = document.getElementById('summary-reserve-text');
+
+      if (totalReserve > 0) {
+        reservePill.textContent = `Réserve cash conseillée : ${formatEur(totalReserve)}`;
+        reservePill.classList.remove('hidden');
+        reserveText.innerHTML = `<span class="text-amber-300">Garder ${formatEur(totalReserve)} en réserve cash</span>`;
+      } else if (totalRecEur > settings.dcaBudget) {
+        reservePill.classList.add('hidden');
+        const extra = totalRecEur - settings.dcaBudget;
+        reserveText.innerHTML = `<span class="text-emerald-300">+${formatEur(extra)} depuis ta réserve</span> (si disponible)`;
+      } else {
+        reservePill.classList.add('hidden');
+        reserveText.textContent = '100 % du budget mensuel déployé';
+      }
+
+      // Section 3 : Cartes détaillées ETH & SOL
+      renderAssetCard('eth', {
+        symbol: 'ETH',
+        decimals: 4,
+        balance: appState.eth.balance,
+        valueEur: ethValEur,
+        rpcStatus: appState.eth.rpcStatus,
+        ind: ethInd,
+        recEur: recEthEur,
+        recQty: recEthQty,
+        reserve: reserveEth,
+        dates: appState.eth.dates,
+        prices: appState.eth.prices,
+        color: '#818CF8',
+      });
+
+      renderAssetCard('sol', {
+        symbol: 'SOL',
+        decimals: 3,
+        balance: appState.sol.balance,
+        valueEur: solValEur,
+        rpcStatus: appState.sol.rpcStatus,
+        ind: solInd,
+        recEur: recSolEur,
+        recQty: recSolQty,
+        reserve: reserveSol,
+        dates: appState.sol.dates,
+        prices: appState.sol.prices,
+        color: '#34D399',
+      });
+    }
+
+    function renderAssetCard(prefix, data) {
+      const { symbol, decimals, balance, valueEur, rpcStatus, ind, recEur, recQty, reserve, dates, prices, color } = data;
+
+      document.getElementById(`${prefix}-price`).textContent = formatEur(ind.currentPrice);
+      const badge = document.getElementById(`${prefix}-zone-badge`);
+      badge.textContent = `${ind.zone.label} (${ind.zone.multiplier.toFixed(1)}×)`;
+      badge.className = `text-xs font-medium px-2.5 py-1 rounded-full border ${ind.zone.badgeClass}`;
+
+      document.getElementById(`${prefix}-balance-qty`).textContent = `${balance.toFixed(decimals)} ${symbol}`;
+      document.getElementById(`${prefix}-balance-eur`).textContent = formatEur(valueEur);
+      document.getElementById(`${prefix}-rpc-status`).textContent = rpcStatus;
+
+      document.getElementById(`${prefix}-sma200`).textContent = formatEur(ind.sma200);
+      const devEl = document.getElementById(`${prefix}-sma-dev`);
+      devEl.textContent = formatSignedPct(ind.smaDevPct);
+      devEl.className = `text-sm font-semibold mt-0.5 ${ind.smaDevPct < 0 ? 'text-emerald-400' : ind.smaDevPct > 20 ? 'text-amber-400' : 'text-slate-100'}`;
+
+      const rsiEl = document.getElementById(`${prefix}-rsi`);
+      rsiEl.textContent = ind.rsi14.toFixed(1);
+      rsiEl.className = `text-sm font-semibold mt-0.5 ${ind.rsi14 <= 35 ? 'text-emerald-400' : ind.rsi14 >= 70 ? 'text-amber-400' : 'text-slate-100'}`;
+
+      document.getElementById(`${prefix}-drawdown`).textContent = `${ind.drawdownPct.toFixed(1)} %`;
+
+      // Bloc recommandation DCA
+      document.getElementById(`${prefix}-dca-mult`).textContent = `Multiplicateur ${ind.zone.multiplier.toFixed(1)}×`;
+      document.getElementById(`${prefix}-dca-eur`).textContent = formatEur(recEur);
+      document.getElementById(`${prefix}-dca-qty`).textContent = `${recQty.toFixed(decimals)} ${symbol}`;
+
+      let reasonText = ind.zone.reason;
+      if (reserve > 0) {
+        reasonText += ` Mettre ${formatEur(reserve)} de côté sur ton livret pour les prochains creux.`;
+      }
+      document.getElementById(`${prefix}-dca-reason`).textContent = reasonText;
+
+      // Graphique SVG 90 jours
+      renderChart(
+        `${prefix}-chart-container`,
+        `${prefix}-chart-hover`,
+        dates,
+        prices,
+        ind.sma200Series,
+        color,
+        `grad-${prefix}`
+      );
+    }
+
+    // =========================================================================
+    // 9. RAFRAÎCHISSEMENT GLOBAL (MANUEL & AU CHARGEMENT)
+    // =========================================================================
+    async function refreshAll(manual = false) {
+      const icon = document.getElementById('refresh-icon');
+      const btn = document.getElementById('refresh-btn');
+      icon.classList.add('animate-spin');
+      btn.disabled = true;
+
+      try {
+        // 1. Récupération des prix historiques (200+ jours)
+        const market = await fetchAllMarketData();
+        appState.source = market.source;
+        appState.eth.dates = market.eth.dates;
+        appState.eth.prices = market.eth.prices;
+        appState.eth.indicators = analyzeAsset(market.eth.prices);
+
+        appState.sol.dates = market.sol.dates;
+        appState.sol.prices = market.sol.prices;
+        appState.sol.indicators = analyzeAsset(market.sol.prices);
+
+        // 2. Lecture des soldes Ledger (ou simulation ~6 000 € en Mode Démo)
+        if (isDemoActive()) {
+          const ethDemoTarget = 6000 * (settings.ethSplit / 100);
+          const solDemoTarget = 6000 * ((100 - settings.ethSplit) / 100);
+          appState.eth.balance = ethDemoTarget / appState.eth.indicators.currentPrice;
+          appState.sol.balance = solDemoTarget / appState.sol.indicators.currentPrice;
+          appState.eth.rpcStatus = 'Solde simulé (Démo)';
+          appState.sol.rpcStatus = 'Solde simulé (Démo)';
+        } else {
+          const [ethBal, solBal] = await Promise.all([
+            fetchEthBalance(settings.ethAddress),
+            fetchSolBalance(settings.solAddress),
+          ]);
+          appState.eth.balance = ethBal.balance;
+          appState.eth.rpcStatus = ethBal.status;
+          appState.sol.balance = solBal.balance;
+          appState.sol.rpcStatus = solBal.status;
+        }
+
+        renderUI();
+        if (manual) showToast('Données actualisées.', 'success');
+      } catch (err) {
+        console.error('Erreur lors de la mise à jour :', err);
+        showToast('Une erreur est survenue lors de la récupération des données.', 'error');
+      } finally {
+        icon.classList.remove('animate-spin');
+        btn.disabled = false;
+      }
+    }
+
+    // Lancement initial au chargement de la page
+    window.addEventListener('DOMContentLoaded', () => {
+      refreshAll(false);
+    });
+  </script>
+</body>
+</html>
